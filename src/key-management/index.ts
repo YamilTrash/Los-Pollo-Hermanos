@@ -5,7 +5,7 @@ import {
 } from "./anthropic/provider";
 import { KeyPool } from "./key-pool";
 
-export type AIService = "openai" | "anthropic";
+export type AIService = "openai" | "anthropic" | "shikiho";
 export type Model = OpenAIModel | AnthropicModel;
 
 export interface Key {

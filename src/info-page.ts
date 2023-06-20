@@ -38,15 +38,16 @@ function cacheInfoPageHtml(baseUrl: string) {
   const info = {
     uptime: process.uptime(),
     endpoints: {
-      ...(openaiKeys ? { openai: baseUrl + "/proxy/openai" } : {}),
-      ...(anthropicKeys ? { anthropic: baseUrl + "/proxy/anthropic" } : {}),
+      // ...(openaiKeys ? { openai: baseUrl + "/proxy/openai" } : {}),
+      // ...(anthropicKeys ? { anthropic: baseUrl + "/proxy/anthropic" } : {}),
+      shikiho: baseUrl + "/proxy/shikiho",
     },
     proompts: keys.reduce((acc, k) => acc + k.promptCount, 0),
     ...(config.modelRateLimit ? { proomptersNow: getUniqueIps() } : {}),
-    openaiKeys,
-    anthropicKeys,
-    ...(openaiKeys ? getOpenAIInfo() : {}),
-    ...(anthropicKeys ? getAnthropicInfo() : {}),
+    // openaiKeys,
+    // anthropicKeys,
+    // ...(openaiKeys ? getOpenAIInfo() : {}),
+    // ...(anthropicKeys ? getAnthropicInfo() : {}),
     config: listConfig(),
     build: process.env.BUILD_INFO || "dev",
   };

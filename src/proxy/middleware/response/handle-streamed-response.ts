@@ -190,6 +190,10 @@ function transformEvent({
     return { position: lastPosition, event: data };
   }
 
+  if (requestApi === "openai" && responseApi === "shikiho") {
+    return { position: -1, event: transformShikihoEventToOpenAI(data) };
+  }
+
   const event = JSON.parse(data.slice("data: ".length));
   const newEvent = {
     id: "ant-" + event.log_id,
@@ -208,6 +212,24 @@ function transformEvent({
     position: event.completion.length,
     event: `data: ${JSON.stringify(newEvent)}`,
   };
+}
+
+function transformShikihoEventToOpenAI(data: string) {
+  const event = JSON.parse(data.slice("data: ".length));
+  const newEvent = {
+    id: "shikiho-" + Math.random().toString(36).slice(2),
+    object: "chat.completion.chunk",
+    created: Date.now(),
+    model: "shikiho",
+    choices: [
+      {
+        index: 0,
+        delta: { content: event.data },
+        finish_reason: null,
+      },
+    ],
+  };
+  return `data: ${JSON.stringify(newEvent)}`;
 }
 
 /** Copy headers, excluding ones we're already setting for the SSE response. */
@@ -288,6 +310,10 @@ function convertEventsToFinalResponse(events: string[], req: Request) {
       log_id: req.id,
     };
     return response;
+  }
+  if (req.outboundApi === "shikiho") {
+    // not implemented
+    return {};
   }
   throw new Error("If you get this, something is fucked");
 }

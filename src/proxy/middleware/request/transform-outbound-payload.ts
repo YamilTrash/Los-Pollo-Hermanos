@@ -84,10 +84,95 @@ export const transformOutboundPayload: RequestPreprocessor = async (req) => {
     return;
   }
 
+  if (req.inboundApi === "openai" && req.outboundApi === "shikiho") {
+    req.body = openAiToShikiho(req);
+    req.log.debug("Transformed OpenAI-to-Shikiho request");
+    return;
+  }
+
   throw new Error(
     `'${req.inboundApi}' -> '${req.outboundApi}' request proxying is not supported. Make sure your client is configured to use the correct API.`
   );
 };
+
+function openAiToShikiho(req: Request) {
+  // Shikiho request format is pretty simple.
+  // {"question":"cool","history":[["test"," Hello! How may I assist you?"],["what is your name?"," My name is Claude."]],"newTextInput":""}
+  // not sure what `newTextInput` is for, never seen it used.
+
+  const result = OpenAIV1ChatCompletionSchema.safeParse(req.body);
+  if (!result.success) {
+    req.log.error(
+      { issues: result.error.issues, body: req.body },
+      "Invalid OpenAI-to-Shikiho request"
+    );
+    throw result.error;
+  }
+
+  // // `history` appears to be a list of turns between the user and the assistant.
+  // // It doesn't appear to deal with `system` messages at all.
+  // // We will just try to force the entire messages array into the first history
+  // // turn and then use the last message as the question.
+
+  // const { messages } = result.data;
+
+  // // `question` is anything after the last assistant message.
+  // // `history` is everything before that.
+  // const lastAssistantMessageIndex = messages
+  //   .map((m) => m.role)
+  //   .lastIndexOf("assistant");
+
+  // let history;
+  // if (lastAssistantMessageIndex === -1) {
+  //   history = [];
+  // } else {
+  //   history = messages
+  //     .slice(0, lastAssistantMessageIndex + 1)
+  //     .map((m) => {
+  //       let role: string = m.role;
+  //       if (role === "assistant") {
+  //         role = "Assistant";
+  //       } else if (role === "system") {
+  //         role = "System";
+  //       } else if (role === "user") {
+  //         role = "Human";
+  //       }
+  //       return `\n\n${role}: ${m.content}`;
+  //     })
+  //     .join("");
+  // }
+
+  // const question = messages
+  //   .slice(lastAssistantMessageIndex + 1)
+  //   .map((m) => {
+  //     let role: string = m.role;
+  //     if (role === "system") role = "System";
+  //     if (role === "user") role = "Human";
+  //     return `${role}: ${m.content}`;
+  //   })
+  //   .join("\n\n");
+
+  // req.log.info(
+  //   {
+  //     history,
+  //     question,
+  //     lastAssistantMessageIndex,
+  //   },
+  //   "Transformed OpenAI-to-Shikiho request"
+  // );
+
+  // the above doesn't work very well, the assistant gets confused due to the
+  // weird formatting imposed by Shikiho. just send a blank history and the
+  // entire message array as the question.
+  const history = "";
+  const question = openaiToAnthropic(req.body, req).prompt;
+
+  return {
+    history,
+    question,
+    newTextInput: "",
+  };
+}
 
 function openaiToAnthropic(body: any, req: Request) {
   const result = OpenAIV1ChatCompletionSchema.safeParse(body);
