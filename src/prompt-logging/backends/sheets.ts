@@ -11,6 +11,7 @@ import type { GaxiosResponse } from "googleapis-common";
 import { config } from "../../config";
 import { logger } from "../../logger";
 import { PromptLogEntry } from "..";
+import randomWords from "random-words";
 
 // There is always a sheet called __index__ which contains a list of all the
 // other sheets. We use this rather than iterating over all the sheets in case
@@ -33,6 +34,8 @@ type IndexSheetModel = {
 type LogSheetModel = {
   sheetName: string;
   rows: {
+    id: string;
+    value: number;
     model: string;
     endpoint: string;
     promptRaw: string;
@@ -40,6 +43,50 @@ type LogSheetModel = {
     response: string;
   }[];
 };
+
+const assignUniqueIds = (logSheet: LogSheetModel) => {
+  const idMap: { [key: string]: { id: string; value: number } } = {};
+
+  for (const row of logSheet.rows) {
+    const promptFlattened = row.promptFlattened;
+    let id = idMap[promptFlattened]?.id;
+
+    if (!id) {
+      // Generate a new random ID
+      id = generateRandomWord();
+      idMap[promptFlattened] = { id, value: 1 };
+    }
+
+    row.id = id;
+    row.value = idMap[promptFlattened].value;
+    idMap[promptFlattened].value++;
+  }
+};
+
+const assignUniqueIds = (logSheet: LogSheetModel) => {
+  const idMap: { [key: string]: { id: string; value: number } } = {};
+
+  for (const row of logSheet.rows) {
+    const promptFlattened = row.promptFlattened;
+    let id = idMap[promptFlattened]?.id;
+
+    if (!id) {
+      // Generate a new random ID
+      id = generateRandomWord();
+      idMap[promptFlattened] = { id, value: 1 };
+    }
+
+    row.id = id;
+    row.value = idMap[promptFlattened].value;
+    idMap[promptFlattened].value++;
+  }
+};
+
+// Load the log sheet
+await loadLogSheet({ sheetName: "your_sheet_name" });
+
+// Assign unique IDs and values
+assignUniqueIds(activeLogSheet!);
 
 const MAX_ROWS_PER_SHEET = 2000;
 const log = logger.child({ module: "sheets" });
@@ -96,55 +143,6 @@ const loadIndexSheet = async (assertLockId = true) => {
 };
 
 /** Creates empty __index__ sheet for a new spreadsheet. */
-const createIndexSheet = async () => {
-  const client = sheetsClient!;
-  const spreadsheetId = config.googleSheetsSpreadsheetId!;
-  log.info("Creating empty __index__ sheet.");
-  const res = await client.spreadsheets.batchUpdate({
-    spreadsheetId: spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          addSheet: {
-            properties: {
-              title: "__index__",
-              gridProperties: { rowCount: 1, columnCount: 3 },
-            },
-          },
-        },
-      ],
-    },
-  });
-  assertData(res);
-  indexSheet = { lockId, rows: [] };
-  await writeIndexSheet();
-};
-
-/** Writes contents of in-memory indexSheet to the remote __index__ sheet. */
-const writeIndexSheet = async () => {
-  const client = sheetsClient!;
-  const spreadsheetId = config.googleSheetsSpreadsheetId!;
-  const headerRows = [
-    ["Don't edit this sheet while the server is running.", "", ""],
-    ["Lock ID", lockId, ""],
-    ["logSheetName", "createdAt", "rowCount"],
-  ];
-  const contentRows = indexSheet!.rows.map((row) => {
-    return [row.logSheetName, row.createdAt, row.rowCount];
-  });
-  log.info("Persisting __index__ sheet.");
-  await client.spreadsheets.values.batchUpdate({
-    spreadsheetId: spreadsheetId,
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        { range: "__index__!A1:D", values: [...headerRows, ...contentRows] },
-      ],
-    },
-  });
-};
-
-/** Creates a new log sheet, adds it to the index, and sets it as active. */
 const createLogSheet = async () => {
   const client = sheetsClient!;
   const spreadsheetId = config.googleSheetsSpreadsheetId!;
@@ -165,8 +163,44 @@ const createLogSheet = async () => {
           addSheet: {
             properties: {
               title: sheetName,
-              gridProperties: { rowCount: MAX_ROWS_PER_SHEET, columnCount: 5 },
+              gridProperties: { rowCount: MAX_ROWS_PER_SHEET, columnCount: 6 },
             },
+          },
+        },
+        {
+          updateCells: {
+            range: {
+              sheetId: 0,
+              startRowIndex: 0,
+              endRowIndex: 1,
+              startColumnIndex: 0,
+              endColumnIndex: 6,
+            },
+            rows: [
+              {
+                values: [
+                  {
+                    userEnteredValue: { stringValue: "UniqueID" },
+                  },
+                  {
+                    userEnteredValue: { stringValue: "model" },
+                  },
+                  {
+                    userEnteredValue: { stringValue: "endpoint" },
+                  },
+                  {
+                    userEnteredValue: { stringValue: "prompt json" },
+                  },
+                  {
+                    userEnteredValue: { stringValue: "prompt string" },
+                  },
+                  {
+                    userEnteredValue: { stringValue: "response" },
+                  },
+                ],
+              },
+            ],
+            fields: "userEnteredValue",
           },
         },
       ],
@@ -223,9 +257,9 @@ const createLogSheet = async () => {
       valueInputOption: "RAW",
       data: [
         {
-          range: `${sheetName}!A1:E`,
+          range: `${sheetName}!A1:F`,
           values: [
-            ["model", "endpoint", "prompt json", "prompt string", "response"],
+            ["UniqueID", "model", "endpoint", "prompt json", "prompt string", "response"],
           ],
         },
       ],
@@ -274,11 +308,12 @@ export const appendBatch = async (batch: PromptLogEntry[]) => {
     log.info({ sheetName, rowCount: newRowCount }, "Successfully appended.");
     activeLogSheet!.rows = activeLogSheet!.rows.concat(
       newRows.map((row) => ({
-        model: row[0],
-        endpoint: row[1],
-        promptRaw: row[2],
-        promptFlattened: row[3],
-        response: row[4],
+        UniqueID: row[0],
+        model: row[1],
+        endpoint: row[2],
+        promptRaw: row[3],
+        promptFlattened: row[4],
+        response: row[5],
       }))
     );
   } else {
