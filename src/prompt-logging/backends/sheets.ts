@@ -420,3 +420,113 @@ function assertData<T = sheets_v4.Schema$ValueRange>(res: GaxiosResponse<T>) {
   }
   return res.data!;
 }
+type LoadLogSheetArgs = {
+  sheetName: string;
+  /** The starting row to load. If omitted, loads all rows (expensive). */
+  fromRow?: number;
+};
+
+/** Not currently used. */
+export const loadLogSheet = async ({
+  sheetName,
+  fromRow = 2, // omit header row
+}: LoadLogSheetArgs) => {
+  const client = sheetsClient!;
+  const spreadsheetId = config.googleSheetsSpreadsheetId!;
+
+  const range = `${sheetName}!A${fromRow}:E`;
+  const res = await client.spreadsheets.values.get({
+    spreadsheetId: spreadsheetId,
+    range,
+  });
+  const data = assertData(res);
+  const values = data.values || [];
+  const rows = values.slice(1).map((row) => {
+    return {
+      model: row[0],
+      endpoint: row[1],
+      promptRaw: row[2],
+      promptFlattened: row[3],
+      response: row[4],
+    };
+  });
+  activeLogSheet = { sheetName, rows };
+};
+
+export const init = async (onStop: () => void) => {
+  if (sheetsClient) {
+    return;
+  }
+  if (!config.googleSheetsKey || !config.googleSheetsSpreadsheetId) {
+    throw new Error(
+      "Missing required Google Sheets config. Refer to documentation for setup instructions."
+    );
+  }
+
+  log.info("Initializing Google Sheets backend.");
+  const encodedCreds = config.googleSheetsKey;
+  // encodedCreds is a base64-encoded JSON key from the GCP console.
+  const creds: CredentialBody = JSON.parse(
+    Buffer.from(encodedCreds, "base64").toString("utf8").trim()
+  );
+  const auth = new google.auth.GoogleAuth({
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    credentials: creds,
+  });
+  sheetsClient = google.sheets({ version: "v4", auth });
+  stopCallback = onStop;
+
+  const sheetId = config.googleSheetsSpreadsheetId;
+  const res = await sheetsClient.spreadsheets.get({
+    spreadsheetId: sheetId,
+  });
+  if (!res.data) {
+    const { status, statusText, headers } = res;
+    log.error(
+      {
+        res: { status, statusText, headers },
+        creds: {
+          client_email: creds.client_email?.slice(0, 5) + "********",
+          private_key: creds.private_key?.slice(0, 5) + "********",
+        },
+        sheetId: config.googleSheetsSpreadsheetId,
+      },
+      "Could not connect to Google Sheets."
+    );
+    stop();
+    throw new Error("Could not connect to Google Sheets.");
+  } else {
+    const sheetTitle = res.data.properties?.title;
+    log.info({ sheetId, sheetTitle }, "Connected to Google Sheets.");
+  }
+
+  // Load or create the index sheet and write the lockId to it.
+  try {
+    log.info("Loading index sheet.");
+    await loadIndexSheet(false);
+    await writeIndexSheet();
+  } catch (e) {
+    log.info("Creating new index sheet.");
+    await createIndexSheet();
+  }
+};
+
+/** Called during some unrecoverable error to tell the log queue to stop. */
+function stop() {
+  log.warn("Stopping Google Sheets backend.");
+  if (stopCallback) {
+    stopCallback();
+  }
+  sheetsClient = null;
+}
+
+function assertData<T = sheets_v4.Schema$ValueRange>(res: GaxiosResponse<T>) {
+  if (!res.data) {
+    const { status, statusText, headers } = res;
+    log.error(
+      { res: { status, statusText, headers } },
+      "Unexpected response from Google Sheets API."
+    );
+  }
+  return res.data!;
+}
